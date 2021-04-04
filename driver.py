@@ -5,7 +5,7 @@ import numpy as np
 import matplotlib.pyplot as plt
 import os
 import matplotlib.image as mpimg
-from dataPreprocessing import DATA_PROCESSING
+from dataProcessing import DATA_PROCESSING
 
 gpus = tf.config.experimental.list_physical_devices('GPU')
 if gpus:
@@ -19,12 +19,7 @@ if gpus:
         # Memory growth must be set before GPUs have been initialized
         print(e)
 
-def loadingData(fileName, size):
-    f= open("YES_NOT_TO_INCLUDE.txt", 'r')
-    YES_NOT_INCLUDE = f.read().strip().split()
-    f.close()
-    removed = True
-    
+def loadingData(fileName, size):    
     label = 0
     if (fileName[1] == 'Y'):
         label = 1
@@ -36,12 +31,7 @@ def loadingData(fileName, size):
         for name in files: 
             _, ending = os.path.splitext(name)
             if ending == ".jpg":
-                # not to include
-                if (not removed and fileName[1] == 'Y' and name in YES_NOT_INCLUDE):
-                    found = YES_NOT_INCLUDE.index(name)
-                    YES_NOT_INCLUDE.pop(found)
-                else:
-                    names.append(name)   
+                names.append(name)   
     # append all images
     if (not size is None):
         names = names[:size]
@@ -52,12 +42,24 @@ def loadingData(fileName, size):
 
     return np.asarray(X, dtype=np.float16), np.asarray(Y, dtype=np.float16)
 
-def plot(history1, history2):
-    L_train = history1.get("loss")
-    Acc = history1.get('accuracy')
+def visualize(model):
+    weights, bias = model.layers[0].get_weights()
+
+    #normalize filter values between  0 and 1 for visualization
+    f_min, f_max = weights.min(), weights.max()
+    filters = (weights - f_min) / (f_max - f_min)  
     
-    L_train += history2.get("loss")
-    Acc += history2.get('accuracy')
+    #plotting all the filters
+    for i in range(filters.shape[3]):
+        plt.figure()
+        plt.imshow(filters[:,:,:, i])
+        plt.title("Filter" + str(i+1))
+    plt.show()
+    
+
+def plot(history):
+    L_train = history.get("loss")
+    Acc = history.get('accuracy')
     
     # ploting training loss
     iterations = np.arange(len(L_train))
@@ -74,11 +76,25 @@ def plot(history1, history2):
     plt.xlabel('Number of Iterations')
     plt.ylabel('Accuracy')
 
-def AlexNet(X1, Y1, X2, Y2):
+def result(model):
+    # loading the testing dataset
+    yesX, yesY = loadingData('\\YES_test\\', None)
+    noX, noY = loadingData("\\NO_test\\", None)
+    testX = np.concatenate((noX, yesX), axis = 0)
+    testY = np.concatenate((noY, yesY), axis = 0)
+    noX, noY = [], [] # clearing memory
+    yesX, yesY = [], []
+    print("Test data loaded")
+
+    # test preformance on testing dataset
+    test_loss, test_acc = model.evaluate(testX, testY, batch_size= 150)
+    print("The final accuracy on testing dataset is: " + str(test_acc))
+    
+def AlexNet(X, Y):
     # hyper parameters
-    batchSize = 150
-    maxItr = 250
-    shape = [375, 375, 3]
+    batchSize = 250
+    maxItr = 500
+    shape = [256, 256, 3]
     K = 1
     
     model = Sequential()
@@ -113,85 +129,200 @@ def AlexNet(X1, Y1, X2, Y2):
     model.add(layers.Flatten())
     model.add(layers.Dense(10,activation='relu'))
     model.add(layers.Dropout(rate=0.2))
+    model.add(layers.Dense(K, activation='sigmoid'))
+    
+    model.compile(loss='BinaryCrossentropy', optimizer='adam', metrics=['accuracy'])
+    history = model.fit(X, Y, batch_size=batchSize, steps_per_epoch = 2, epochs=maxItr, verbose=1)
+    return model, history
+
+def VGG(X, Y):
+    # hyper parameters
+    batchSize = 150
+    maxItr = 500
+    shape = [256, 256, 3]
+    K = 1
+    
+    model = Sequential()
+    model.add(layers.Conv2D(16, (3,3), strides=2,padding="VALID",input_shape=shape))
+    model.add(layers.Activation("relu"))
+    model.add(layers.Conv2D(16, (3,3), strides=2,padding="VALID"))
+    model.add(layers.Activation("relu"))
+    model.add(layers.MaxPool2D(2, strides=2, padding="VALID"))
+    model.add(layers.BatchNormalization())
+    model.add(layers.Dropout(0.2))
+        
+    model.add(layers.Conv2D(128, (3,3), strides=1,padding="VALID"))
+    model.add(layers.Activation("relu"))
+    model.add(layers.Conv2D(256, (3,3), strides=1,padding="VALID"))
+    model.add(layers.Activation("relu"))
+    model.add(layers.Dropout(0.2))
+    model.add(layers.Conv2D(128, (3,3), strides=1,padding="VALID"))
+    model.add(layers.Activation("relu"))
+    model.add(layers.Dropout(0.2))
+    model.add(layers.MaxPool2D(2, strides=2, padding="VALID"))
+    model.add(layers.BatchNormalization())
+    model.add(layers.Dropout(0.2))
+    
+    
+    model.add(layers.Flatten())
+    model.add(layers.Dense(120,activation='relu'))
+    model.add(layers.Dropout(rate=0.2))
+    
+    model.add(layers.Dense(10,activation='relu'))
+    model.add(layers.Dropout(rate=0.2))
     
     model.add(layers.Dense(K, activation='sigmoid'))
     
     model.compile(loss='BinaryCrossentropy', optimizer='adam', metrics=['accuracy'])
-    
-    history1 = model.fit(X1, Y1, batch_size=batchSize, steps_per_epoch = 3, epochs=maxItr, verbose=1)
-    print("Training from first batch completed")
-    history2 = model.fit(X2, Y2, batch_size=batchSize, steps_per_epoch = 3, epochs=maxItr, verbose=1)
-    print("Training from second batch completed")
-    return model, [history1,history2]
+    history = model.fit(X, Y, batch_size=batchSize, steps_per_epoch = 2, epochs=maxItr, verbose=1)
+    return model, history
 
-def main(processing, plotting, saving, visulizing):
+def LeNet (X, Y):
+    # hyper parameters
+    batchSize = 200
+    maxItr = 500
+    shape = [256, 256, 3]
+    K = 1
+    
+    model = Sequential()
+    model.add(layers.Conv2D(8, (11,11), strides=1,padding="VALID",input_shape=shape))
+    model.add(layers.Activation("relu"))
+    model.add(layers.MaxPool2D(2, strides=2, padding="VALID"))
+    model.add(layers.BatchNormalization())
+    model.add(layers.Dropout(0.2))
+    
+    model.add(layers.Conv2D(30, (5,5), strides=1,padding="VALID"))
+    model.add(layers.Activation("relu"))
+    model.add(layers.MaxPool2D(2, strides=2, padding="VALID"))
+    model.add(layers.BatchNormalization())
+    model.add(layers.Dropout(0.2))
+    
+    model.add(layers.Conv2D(80,(10,10),strides=1,padding='VALID'))
+    model.add(layers.Activation("relu"))
+    model.add(layers.Dropout(0.2))
+    
+    model.add(layers.Conv2D(80,(5,5),strides=1,padding='VALID'))
+    model.add(layers.Activation("relu"))
+    model.add(layers.MaxPool2D(2, strides=2, padding="VALID"))
+    model.add(layers.BatchNormalization())
+    model.add(layers.Dropout(0.2))
+    
+    
+    model.add(layers.Flatten())
+    model.add(layers.Dense(120,activation='relu'))
+    model.add(layers.Dropout(rate=0.2))
+    
+    model.add(layers.Dense(10,activation='relu'))
+    model.add(layers.Dense(K, activation='sigmoid'))
+    
+    model.compile(loss='BinaryCrossentropy', optimizer='adam', metrics=['accuracy'])
+    history = model.fit(X, Y, batch_size=batchSize, steps_per_epoch = 2, epochs=maxItr, verbose=1)
+    return model, history
+
+def Customized (X, Y):
+    # hyper parameters
+    batchSize = 200
+    maxItr = 500
+    shape = [256, 256, 3]
+    K = 1
+    
+    model = Sequential()
+    model.add(layers.Conv2D(8, (5,5), strides=2,padding="VALID",input_shape=shape))
+    model.add(layers.Activation("relu"))
+    model.add(layers.MaxPool2D(2, strides=2, padding="VALID"))
+    model.add(layers.BatchNormalization())
+    model.add(layers.Dropout(0.2))
+    
+    model.add(layers.Conv2D(128, (5,5), strides=2,padding="VALID"))
+    model.add(layers.Activation("relu"))
+    model.add(layers.MaxPool2D(2, strides=2, padding="VALID"))
+    model.add(layers.BatchNormalization())
+    model.add(layers.Dropout(0.2))
+    
+    model.add(layers.Conv2D(256,(3,3),strides=2,padding='VALID'))
+    model.add(layers.Activation("relu"))
+    model.add(layers.BatchNormalization())
+    model.add(layers.MaxPool2D(2, strides=2, padding="VALID"))
+    model.add(layers.Dropout(0.2))
+    
+    model.add(layers.Conv2D(128,(3,3),strides=1,padding='VALID'))
+    model.add(layers.Activation("relu"))
+    model.add(layers.BatchNormalization())
+    model.add(layers.Dropout(0.2))
+    
+    model.add(layers.Flatten())
+    model.add(layers.Dense(10,activation='relu'))
+    model.add(layers.Dropout(rate=0.2))
+    model.add(layers.Dense(K, activation='sigmoid'))
+    
+    model.compile(loss='BinaryCrossentropy', optimizer='adam', metrics=['accuracy'])
+    history = model.fit(X, Y, batch_size=batchSize, steps_per_epoch = 1, epochs=maxItr, verbose=1)
+    return model, history
+
+
+def main(processing, plotting, saving, visualizing, model_selected):
     # pre process the data
     if (processing):
         DATA_PROCESSING().main()  
         print("Data Processing Done")
     
-    
     # loading in the data    
     yesX, yesY = loadingData('\\YES_train\\', None)
     noX, noY = loadingData("\\NO_train\\", len(yesY)) 
-
-    # split the training data into pre-train and train
-    noX_1, noX_2 = np.array_split(noX,2)
-    noY_1, noY_2 = np.array_split(noY,2)
-    yesX_1, yesX_2 = np.array_split(yesX,2)
-    yesY_1, yesY_2 = np.array_split(yesY,2)
-    noX, noY, yesX, yesY  = [], [], [], [] # clearing memory
-    trainX_1 = np.concatenate((noX_1, yesX_1), axis = 0)
-    trainY_1 = np.concatenate((noY_1, yesY_1), axis = 0)
-    trainX_2 = np.concatenate((noX_2, yesX_2), axis = 0)
-    trainY_2 = np.concatenate((noY_2, yesY_2), axis = 0)
-    noX_1, noX_2, noY_1, noY_2 = [], [], [], [] # clearing memory
-    yesX_1, yesX_2, yesY_1, yesY_2 = [],[], [],[]
     print("Train data loaded")
+    # split the training data into pre-train and train
+    trainX = np.concatenate((noX, yesX), axis = 0)
+    trainY = np.concatenate((noY, yesY), axis = 0)
     
-    # training the model on AlexNet
-    model, history = AlexNet(trainX_1, trainY_1, trainX_2, trainY_2)
-    trainX_1, trainY_1, trainX_2, trainY_2 = [], [], [], [] # clearing memory
-
-
-    if (visulizing):
-        weights, bias = model.layers[0].get_weights()
-
-        #normalize filter values between  0 and 1 for visualization
-        f_min, f_max = weights.min(), weights.max()
-        filters = (weights - f_min) / (f_max - f_min)  
+    if (model_selected == "AlexNet"):
+        # training the model on AlexNet
+        model, history = AlexNet(trainX, trainY)
+        trainX, trainY = [], [] # clearing memory
+        print("Training with AlexNet completed")
+        if (visualizing):
+            visualize(model)
+        if (plotting):
+            plot(history.history)
+        result(model)
         
-        #plotting all the filters
-        for i in range(filters.shape[3]):
-            plt.figure()
-            plt.imshow(filters[:,:,:, i])
-            plt.title("Filter" + str(i+1))
-        plt.show()
+    elif (model_selected == "VGG"):
+        model, history = VGG(trainX, trainY)
+        trainX, trainY = [], [] # clearing memory
+        print("Training with VGG-16 completed")
+        if (visualizing):
+            visualize(model)
+        if (plotting):
+            plot(history.history)
+        result(model)
+        
+    elif (model_selected == "LeNet"):
+        model, history = LeNet(trainX, trainY)
+        trainX, trainY = [], [] # clearing memory
+        print("Training with LeNet-5 completed")
+        if (visualizing):
+            visualize(model)
+        if (plotting):
+            plot(history.history)
+        result(model)
 
-
-    if (plotting):
-        plot(history[0].history, history[1].history)
-    
-    # loading the testing dataset
-    yesX, yesY = loadingData('\\YES_test\\', None)
-    noX, noY = loadingData("\\NO_test\\", None)
-    testX = np.concatenate((noX, yesX), axis = 0)
-    testY = np.concatenate((noY, yesY), axis = 0)
-    noX, noY = [], [] # clearing memory
-    yesX, yesY = [], []
-    print("Test data loaded")
-
-    # test preformance on testing dataset
-    test_loss, test_acc = model.evaluate(testX, testY, batch_size= 150)
-    print("The final accuracy on testing dataset is: " + str(test_acc))
+    elif (model_selected == "Customized"):
+        model, history = Customized(trainX, trainY)
+        trainX, trainY = [], [] # clearing memory
+        print("Training with Customized completed")
+        if (visualizing):
+            visualize(model)
+        if (plotting):
+            plot(history.history)
+        result(model)
 
 
 def controller():
     processing = False # whether to process and split the data
     plotting = True # whether to generate plots
     saving = True # whether to save the model
-    visulizing = True # whether to visulize the filters
-    main(processing, plotting, saving, visulizing)
+    visualizing = True # whether to visulize the filters
+    # models: "AlexNet", "VGG", "LeNet", "Customized"
+    main(processing, plotting, saving, visualizing, "Customized")
     
     
 if __name__ == "__main__":
