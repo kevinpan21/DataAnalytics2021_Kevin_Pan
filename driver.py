@@ -86,25 +86,29 @@ def AlexNet(X1, Y1, X2, Y2):
     model.add(layers.Activation("relu"))
     model.add(layers.MaxPool2D(2, strides=2, padding="VALID"))
     model.add(layers.BatchNormalization())
+    model.add(layers.Dropout(0.2))
     
     model.add(layers.Conv2D(128, (5,5), strides=1,padding="VALID"))
     model.add(layers.Activation("relu"))
     model.add(layers.MaxPool2D(2, strides=2, padding="VALID"))
     model.add(layers.BatchNormalization())
+    model.add(layers.Dropout(0.2))
     
     model.add(layers.Conv2D(256,(3,3),strides=1,padding='VALID'))
     model.add(layers.Activation("relu"))
-    tf.keras.layers.Dropout(0.2)
+    model.add(layers.Dropout(0.2))
     
     model.add(layers.Conv2D(256,(3,3),strides=1,padding='VALID'))
     model.add(layers.Activation("relu"))
     model.add(layers.MaxPool2D(2, strides=2, padding="VALID"))
     model.add(layers.BatchNormalization())
+    model.add(layers.Dropout(0.2))
     
     model.add(layers.Conv2D(128,(3,3),strides=1,padding='VALID'))
     model.add(layers.Activation("relu"))
     model.add(layers.MaxPool2D(2, strides=2, padding="VALID"))
     model.add(layers.BatchNormalization())
+    model.add(layers.Dropout(0.2))
     
     model.add(layers.Flatten())
     model.add(layers.Dense(10,activation='relu'))
